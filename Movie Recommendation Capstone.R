@@ -84,3 +84,7 @@ edx %>% group_by(movieId,title) %>%
 
 #What are the five most given ratings in order from most to least?
 edx %>% count(rating, sort = TRUE)
+
+#True or False: In general, half star ratings are less common than whole star ratings (e.g., there are fewer ratings of 3.5 than there are ratings of 3 or 4, etc.).
+sum(edx$rating == 1.0, 2.0, 3.0, 4.0, 5.0) > sum(edx$rating == 1.5, 2.5, 3.5, 4.5)
+
