@@ -54,8 +54,10 @@ rm(dl, ratings, movies, test_index, temp, movielens, removed)
 #Model Development
 ##################
 
-edx <- ddply(edx, .(userId), transform, user_freq = count(userId))) %>%
-edx <- subset(edx, select = -c(user_freq.x))
-edx <- colnames(edx)[which(names(edx) == "user_freq.freq")] <- "user_freq"
+edx <- ddply(edx, .(userId), transform, user = count(userId))
+edx <- subset(edx, select = -c(user.x))
+
+
+
 
 
