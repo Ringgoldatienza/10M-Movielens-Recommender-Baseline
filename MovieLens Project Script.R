@@ -268,4 +268,3 @@ predicted_ratings <- edxTestSet %>%
   mutate(pred = mu + b_i + b_u + b_uf) %>%
   pull(pred)
 RMSE(predicted_ratings, edxTestSet$rating)
-
