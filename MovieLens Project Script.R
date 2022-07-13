@@ -15,6 +15,7 @@ library(dplyr)
 library(lubridate)
 library(tidyr)
 
+
 # MovieLens 10M dataset:
 # https://grouplens.org/datasets/movielens/10m/
 # http://files.grouplens.org/datasets/movielens/ml-10m.zip
@@ -36,6 +37,53 @@ movies <- as.data.frame(movies) %>% mutate(movieId = as.numeric(movieId),
 
 movielens <- left_join(ratings, movies, by = "movieId")
 
+#############################################################################
+#Create/Transform variables that are hypothesized as important for prediction
+#############################################################################
+
+library(plyr)
+
+#No. of times users rate movies
+movielens <- ddply(movielens, .(userId), transform, user = count(userId))
+movielens <- subset(movielens, select = -c(user.x))
+setnames(movielens, "user.freq", "userFreq")
+
+#No.of times movies are rated
+movielens <- ddply(movielens, .(movieId), transform, movie = count(movieId))
+movielens <- subset(movielens, select = -c(movie.x))
+setnames(movielens, "movie.freq", "movieFreq")
+
+#Average rating of movies per user
+movielens <- ddply(movielens, .(userId), transform, userAverageRating = mean(rating))
+
+#Average rating per movie
+movielens <- ddply(movielens, .(movieId), transform, movieAverageRating = mean(rating))
+
+#Mutate timestamp into dates
+movielens <- mutate(movielens, date = (as_datetime(timestamp)),
+              year = year(as_datetime(timestamp)),
+              month = month(as_datetime(timestamp)))
+
+#Separate the values of genres into columns(variable) per genre
+
+detach(package:plyr)
+
+movielens <- movielens %>%
+  mutate(row = row_number()) %>%
+  separate_rows(genres, sep = '\\|') %>%
+  pivot_wider(names_from = genres, values_from = genres, 
+              values_fn = function(x) 1, values_fill = 0) %>%
+  select(-row)
+
+#Setting names of genre to avoid future problems on modelling
+setnames(movielens, "(no genres listed)", "NoGenre")
+setnames(movielens, "Sci-Fi", "SciFi")
+setnames(movielens, "Film-Noir", "FilmNoir")
+
+######################
+#Create validation set
+######################
+
 # Validation set will be 10% of MovieLens data
 set.seed(1, sample.kind="Rounding") # if using R 3.5 or earlier, use `set.seed(1)`
 test_index <- createDataPartition(y = movielens$rating, times = 1, p = 0.1, list = FALSE)
@@ -53,14 +101,28 @@ edx <- rbind(edx, removed)
 
 rm(dl, ratings, movies, test_index, temp, movielens, removed)
 
-##################
-#Model Development
-##################
+#######################################
+#Partition data into train and test Set
+#######################################
 
-###########################
-#Create variables/Features
-##########################
+#Assign edx data into train (80%) and test (20%) sets.
+set.seed(755, sample.kind = 'Rounding')
+test_index <- createDataPartition(y = edx$rating, times = 1, 
+                                  p = 0.2, list = FALSE)
 
+edxTrainSet <- edx[-test_index,]
+edxTestSet <- edx[test_index,]
+
+#To overlap the movie and user Ids using semi_join
+edxTestSet <- edxTestSet %>%
+  semi_join(edxTrainSet, by = "movieId") %>%
+  semi_join(edxTrainSet, by = "userId")
+
+rm(edx, test_index)
+
+#############################################################################
+#Create/Transform variables that are hypothesized as important for prediction
+#############################################################################
 
 #No of times users rate movies
 edx <- ddply(edx, .(userId), transform, user = count(userId))
@@ -86,11 +148,14 @@ edx <- edx %>%
               values_fn = function(x) 1, values_fill = 0) %>%
   select(-row)
 
-setnames(edx, "(no genres listed)", "No-Genre")
+#Setting names of genre to avoid future problems on modelling
+setnames(edx, "(no genres listed)", "NoGenre")
+setnames(edx, "Sci-Fi", "SciFi")
+setnames(edx, "Film-Noir", "FilmNoir")
 
-########################
-#Train Set and Test Set
-########################
+#######################################
+#Partition data into train and test Set
+#######################################
 
 #Assign edx data into train (80%) and test (20%) sets.
 set.seed(755, sample.kind = 'Rounding')
@@ -204,26 +269,3 @@ predicted_ratings <- edxTestSet %>%
   pull(pred)
 RMSE(predicted_ratings, edxTestSet$rating)
 
-####################
-#Regression Model 1
-####################
-
-fit <- lm(rating ~ userFreq + userAverageRating + movieAverageRating + year, data = edxTrainSet)
-summary(fit)
-
-predicted_ratings <- predict(fit, edxTestSet)
-RMSE(predicted_ratings, edxTestSet$rating)
-
-####################
-#Regression Model 2
-####################
-
-fit <- lm(rating ~ userFreq + userAverageRating + movieAverageRating + year + as.factor(Adventure) + as.factor(Crime) + as.factor(Romance) + as.factor(Comedy), data = edxTrainSet)
-summary(fit)
-
-predicted_ratings <- predict(fit, edxTestSet)
-RMSE(predicted_ratings, edxTestSet$rating)
-
-
-library(car)
-vif(fit)
