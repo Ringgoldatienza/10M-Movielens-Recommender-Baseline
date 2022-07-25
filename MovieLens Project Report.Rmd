@@ -1,0 +1,1380 @@
+---
+title: "MovieLens Recommendation System Project"
+subtitle: "HarvardX - PH125.9x: Data Science: Capstone"
+author: "Ringgold P. Atienza"
+date: "`r format(Sys.time(), '%B %d, %Y')`"
+output: pdf_document
+---
+
+# 1. Introduction
+
+The recommendation system is one of the most popular machine learning projects to learn. It is widely used in many fields such as education, medicine, movies, music, e-commerce, TV programming, social networking, and tourism to fulfill user needs [1]. Recommendation systems are software tools and techniques that provide suggestions for items most likely of interest to a particular user [2]. In the context of business, a recommendation system ensures that users are always provided with the best possible experience. A good user experience leads to engagement or profit. Thus, recommendation systems derive tremendous value, and companies are always looking to improve their efficiency in this area.
+
+In 2006, the company Netflix held the \$1M Netflix Prize challenge, searching for a recommendation system algorithm that could increase their current efficiency by 10% [3]. It was a prominent analytics competition back then not only because of the \$1M prize but also because it provided 100 million data of movie ratings, which invigorated many analysts back then.
+
+Nowadays, big data has become very accessible due to the internet. Datasets such as MovieLens, which provides big data for movie ratings, are available for those who want to analyze the data online [4]. For this project, I use the 10 million version of the MovieLens dataset to create a movie recommendation system. The Movielens 10M dataset tags ratings applied to 10,000 movies by 72,000 users, released in 2009. This project aims to create a recommendation system algorithm with a predicted rating that will result in root means square error (RMSE) $< 0.86490$ in the validation set.
+
+Due to the large dataset, there were limitations regarding the technique I used in this project. A more powerful algorithm such as matrix factorization and neighborhood models were impractical as they required immense computing power that a personal computer cannot provide. While those complex algorithms are terrific, a simpler algorithm that can do the job is always preferred.
+
+# 2. Methods and Analysis
+
+## 2.1. Preparing the Data
+
+### 2.1.1. Training Set and Validation Set
+
+In machine learning, the best practice is to split the data into three independent sets: a training set, a test set, and a validation set. The training dataset is used to fit the model. The test and validation sets are a sample of data taken from the training dataset to estimate the model's performance while tuning the model's hyperparameter [5]. A test dataset is different from the validation dataset as it provides an unbiased evaluation of the model fit on the training dataset. This process is important to cross-validate and refines the final model without the risk of over-fitting. Meanwhile, the validation dataset provides an unbiased evaluation of the performance of the final tuned model. The validation set is not used for training, developing, or selecting algorithms but only to evaluate the final model. Thus, it may not be used to test the RMSE of different algorithms during model development.
+
+To start, the MovieLens 10M dataset was downloaded from this website: "<https://grouplens.org/datasets/movielens/10m/>". Then the MovieLens 10M dataset was partitioned into train-validation split, as shown in Figure 1. The training dataset will be used to evaluate the final model against the validation dataset. Further, the final training dataset is partitioned into a train-test split. These two resulting datasets, training and test set, were then used to find the best algorithms for the recommendation system.
+
+![Partitioning of Train, Test, and Validation Datasets](%22C:%5CUsers%5CADMIN%5CDocuments%5CGitHub%5CEdX-Data-Science---Capstone-Project%5CFigures%5CDatasets_partition.png%22){width="50%"}
+
+```{r Load- Packages, include = FALSE}
+if(!require(tidyverse)) install.packages("tidyverse", repos = "http://cran.us.r-project.org")
+if(!require(caret)) install.packages("caret", repos = "http://cran.us.r-project.org")
+if(!require(data.table)) install.packages("data.table", repos = "http://cran.us.r-project.org")
+if(!require(dplyr)) install.packages("dplyr", repos = "http://cran.us.r-project.org")
+if(!require(lubridate)) install.packages("lubridate", repos = "http://cran.us.r-project.org")
+if(!require(tidyr)) install.packages("tidyr", repos = "http://cran.us.r-project.org")
+if(!require(forcats)) install.packages("forcats", repos = "http://cran.us.r-project.org")
+```
+
+```{r Load- Data, echo=FALSE}
+load("C:/Users/ADMIN/Documents/Github/EdX-Data-Science---Capstone-Project/Data/Final Dataset.RData")
+```
+
+### 2.1.2. Mutating Dataset
+
+The original data only provides the user ID, movie ID, rating, timestamp of the rating, movie title, and movie genres. Mutations were made to the dataset to flesh out other relevant variables such as the movie's year of release, age of the movie upon the rating, user frequency of rating, and movie frequency of being rated. The final dataset for training includes the following variables:
+
+```{r, echo = FALSE}
+colnames(edx)
+```
+
+## 2.2. Data Visualization
+
+### 2.2.1. Ratings
+
+The ratings of the movies start with the lowest value of 0.5 up to the highest value of 5.0. The distribution of the total ratings is shown in Figure 2. The distribution tells us that most of the raters rate the movies at 4.0, and very few rate movies at 0.5. It also shows that raters tend to rate movies the whole stars as compared to half stars.
+
+```{r Plot- Actual rating distribution, echo=FALSE, warning=FALSE, fig.align='center', fig.height=3, fig.width=7}
+ggplot(edx, aes(rating)) +
+  geom_histogram(binwidth = 0.25, color = "black") +
+  scale_x_discrete(limits = c(seq(0.5,5,0.5))) +
+  scale_y_continuous(breaks = c(seq(0, 3000000, 500000))) +
+  labs(x = "Rating", y = "Count",
+       caption = "*based on final training dataset") +
+  theme(plot.title = element_text(size = rel(1.5)),
+        plot.caption = element_text(size = 8, face = "italic"), 
+        axis.title = element_text(size = 12))
+```
+
+```{=tex}
+\begin{center}
+Figure 2. Total Ratings Distribution
+\end{center}
+```
+### 2.2.2. Average Rating by MovieID
+
+Most of the average ratings by MovieID are at 3.0 and 3.5, as shown in Figure 3. Also, average movie ratings are between 2.84 (10% percentile) and 3.85 (90% percentile). The result indicates there are very few movies rated averagely very low (less than 10% percentile) and very high (higher than 90 % percentile).
+
+```{r Computation- Average Rating by Movie, include=FALSE}
+ave_rating_movie <- edx %>% group_by(movieId) %>%
+  summarise(ave_rating = sum(rating)/n())
+
+ave_rating_movie %>% count(ave_rating) %>% arrange(desc(n))
+
+quantile(ave_rating_movie$ave_rating, probs = seq(0,1,.1))
+```
+
+```{r Plot- Distribution of average ratings per movie, echo=FALSE, fig.align='center', fig.height=3, fig.width=7}
+edx %>% group_by(movieId) %>%
+  summarise(ave_rating = sum(rating)/n()) %>%
+  ggplot(aes(ave_rating)) +
+  geom_histogram(binwidth = .005, color = "black") +
+  labs(x = "Average rating", y = "Number of movies",
+       caption = "*based on final training dataset") +
+  theme(plot.title = element_text(size = rel(1.5)),
+    plot.caption = element_text(size = 8, face = "italic"), 
+        axis.title = element_text(size = 12))
+```
+
+```{=tex}
+\begin{center}
+Figure 3. Distribution of Average Ratings by Movie
+\end{center}
+```
+### 2.2.3. Average Rating by UserID
+
+In Figure 4, most of the average ratings by UserID are at 4.0 and 3.5, which indicates that many users are inclined to rate movies at 4.0 and 3.5. Also, average movie ratings are between 3.08 (10% percentile) and 4.13 (90% percentile). The result indicates there are very few users rate very low (less than 10% percentile) and very high (higher than 90 % percentile).
+
+```{r Computation- Average Rating by User, include = FALSE}
+ave_rating_user <- edx %>% group_by(userId) %>%
+  summarise(ave_rating = sum(rating)/n())
+
+ave_rating_user %>% count(ave_rating) %>% arrange(desc(n))
+
+quantile(ave_rating_user$ave_rating, probs = seq(0,1,.1))
+```
+
+```{r Plot- Distribution of average ratings by user, echo = FALSE, fig.align='center', fig.height=3, fig.width=7}
+edx %>% group_by(userId) %>%
+  summarise(ave_rating = sum(rating)/n()) %>%
+  ggplot(aes(ave_rating)) +
+  geom_histogram(binwidth = .005, color = "black") +
+  labs(x = "Average rating", y = "Number of users",
+       caption = "*based on final training dataset") +
+  theme(plot.title = element_text(size = rel(1.5)),
+        plot.caption = element_text(size = 8, face = "italic"),  
+        axis.title = element_text(size = 12))
+```
+
+```{=tex}
+\begin{center}
+Figure 4. Distribution of Average Ratings by Users
+\end{center}
+```
+### 2.2.4. Total Rated Movies by Year
+
+In Figure 5, movies released on 1995 have the highest rating reviews while the fewest is 1917. The total rated movies are between 1973 (10% percentile) and 2002 (90% percentile). The result indicates that few movies were rated from 1917 to 1972 and 2002 to 2008.
+
+```{r Computation- Total Rated Movies by Year, include = FALSE}
+edx %>% count(movieYear) %>% arrange(desc(n))
+
+quantile(edx$movieYear, probs = seq(0,1,.1))
+```
+
+```{r Plot- Distribution of ratings by year , echo = FALSE, fig.align='center', fig.height=3, fig.width=7}
+ggplot(edx, aes(movieYear)) +
+  geom_histogram(binwidth = 1, color = "black") +
+  scale_y_continuous(breaks = seq(0, 8000000, 100000), labels = seq(0, 80000, 1000)) +
+  labs(x = "Release Year", y = "Count ('000s)", 
+       caption = "*based on final training dataset") +
+  theme(plot.title = element_text(size = rel(1.5)),
+        plot.caption = element_text(size = 8, face = "italic"),  
+        axis.title = element_text(size = 12))
+```
+
+```{=tex}
+\begin{center}
+Figure 5. Distribution of Total Rated Movies Per Year
+\end{center}
+```
+### 2.2.5. Total Rated Movies by Movie Age
+
+Results in Figure 6 showed that users rate movies more frequently after a year of the movie's release. Users seldom rate movies released during its year (10% percentile) and over 30 years (90% percentile). There were movies rated before the release date because some users rate movies based on the pre-screening of the movie.
+
+```{r Computation- Total Rated Movies by Movie Age, include = FALSE}
+edx %>% count(movieAge) %>% arrange(desc(n))
+
+quantile(edx$movieAge, probs = seq(0,1,.1))
+```
+
+```{r Plot- Distribution of rating by movie age, echo = FALSE, fig.align='center', fig.height=3, fig.width=7}
+ggplot(edx, aes(movieAge)) +
+  geom_histogram(binwidth = 1, color = "black") +
+  scale_y_continuous(breaks = seq(0, 1100000, 100000), labels = seq(0, 1100, 100)) +
+  labs(x = "Movie's Age", y = "Count (,000s)",
+       caption = "*based on final training dataset") +
+  theme(plot.title = element_text(size = rel(1.5)),
+        plot.caption = element_text(size = 8, face = "italic"),  
+        axis.title = element_text(size = 12))
+```
+
+```{=tex}
+\begin{center}
+Figure 6. Distribution of Total Rated Movies Per Movie Age
+\end{center}
+```
+### 2.2.6. Total Rated Movies by Genre
+
+In the MovieLens dataset, most movies are assigned to more than one genre. With this, we have to separate these genres aggregated in one feature to generate the distribution of the most rated genre in the dataset. The result in Figure 7 shows that Drama has the most number of rated movies.
+
+```{r Plot- Distribution of rating by genre, echo = FALSE, fig.align='center', fig.height=3, fig.width=7}
+edx %>% separate_rows(genres, sep = "\\|") %>%
+  group_by(genres) %>%
+  ggplot(aes(x = fct_infreq(genres))) +
+  geom_bar() +
+  scale_y_continuous(breaks = seq(0, 4000000, 500000)) +
+  labs(x = "Genre", y = "Count", 
+       caption = "*based on final training dataset") +
+  theme(plot.title = element_text(size = rel(1.5)),
+      plot.caption = element_text(size = 8, face = "italic"), 
+      axis.title = element_text(size = 12),
+      axis.text.x = element_text(angle = 60, hjust =1))
+```
+
+```{=tex}
+\begin{center}
+Figure 7. Distribution of Total Rated Movies Per Genre
+\end{center}
+```
+## 2.3. Building the Model
+
+### 2.3.1. Residual Mean Square Error (RMSE) as Loss Function
+
+RMSE is one of the most widely used metrics for evaluating prediction models or algorithms in many fields [5]. In machine learning, we refer to those metrics that evaluate how well the model performs over the training dataset as loss functions. RMSE is calculated by taking the square root of Mean Squared Errors (MSE):
+
+$$
+RMSE = \sqrt {1/N \sum_{i = 1}^{N}{(\hat{x}_i - y_i)^2}}
+$$ In general, creating a prediction model aims to build an algorithm that minimizes the loss so it is as close to 0 as possible [6]. This project aims to build an algorithm that results in an RMSE \< 0.86490.
+
+```{r Setting Loss Function, include = FALSE}
+RMSE <- function(true_ratings, predicted_ratings){
+  sqrt(mean((true_ratings - predicted_ratings)^2))
+  }
+```
+
+### 2.3.2. Stepwise Method for Least Square Estimate
+
+This project utilizes the stepwise method using the least squares estimates and RMSE as an evaluation metric. The least squares method is about estimating parameters by minimizing the squared discrepancies [7]. The (1)movieID, (2)userID, (3)movie's year of release, (4)movie's age when rated, (5)genre, (6)frequency the movie is rated, and (7)frequency the user rated movies are the variables considered for testing 
+between observed data
+
+Stepwise method is a technique that utilizes an evaluation metric to select the variables to be used in the model. This technique helps us determine the best model by incrementally examining the variables for some explanatory power, then includes or excludes variables based on particular criteria [8]. The procedure starts with the simplest model as the baseline, using the rating means as a predictor. Subsequently, the method tests the variables individually to find the best predictor, significantly reducing the RMSE. The best predictor for that step will be added to the model and is considered the new baseline. The process is repeated until no single step can improve the model.
+
+### 2.3.2.1. Baseline Rating
+
+The baseline is the mean of the overall user's movie rating. The mean rating is used to predict all movies. Our model for this is:
+
+$$
+Y = \mu + \epsilon
+$$ To run the model, the mean of the rating was computed:
+
+```{r Computation- Mean,}
+mu <- mean(edxTrainSet$rating)
+```
+
+```{r Message- Mean, echo = FALSE}
+message("The mean rating is = ", sprintf(mu, fmt = '%#.3f'))
+```
+
+```{r Computation- RMSE_Baseline, include = FALSE}
+rmse_baseline <- RMSE(edxTestSet$rating, mu)
+```
+
+```{r Dataframe- RMSE_Baseline, include = FALSE}
+rmse_baseline_step  <- data.frame(Variable = "Baseline (mu)", 
+                           RMSE = rmse_baseline, 
+                           Difference = 0)
+```
+
+The RMSE was also computed for the baseline:
+
+```{r Table- RMSE_Baseline, echo = FALSE, warning=FALSE}
+knitr::kable(rmse_baseline_step) 
+```
+
+After setting the baseline rating ($\mu$), the estimates movie effect ($\beta_i$), user effect ($\beta_u$), movie age effect ($\beta_a$), movie year affect ($\beta_y$), genre effect ($\beta_g$), user frequency effect ($\beta_f$), and movie frequency effect ($\beta_m$) are tested individually with the baseline. The model is then extended to accommodate the first effect:
+
+$$
+Y = \mu + \beta + \epsilon
+$$
+
+The table below shows the values of RMSE when we individually add the first effects in the model. The effect that shows the minimal loss, in this case the lowest RMSE, was chosen for the development of the model.
+
+```{r Stepwise 0- Baseline, include = FALSE}
+#Predict (mu + bi)
+movie_avgs <- edxTrainSet %>% 
+  group_by(movieId) %>% 
+  summarize(b_i = mean(rating - mu))
+
+predicted_ratings <- mu + edxTestSet %>% 
+  left_join(movie_avgs, by='movieId') %>%
+  pull(b_i)
+
+movie_rmse <- RMSE(predicted_ratings, edxTestSet$rating) 
+
+movie_rmse <- data.frame(Variable = "Baseline + Movie Effect (mu + b_i)", 
+                 RMSE = movie_rmse,
+                 Difference = rmse_baseline - movie_rmse)
+
+rmse_baseline_step  <- rbind(rmse_baseline_step , movie_rmse)
+
+rm(movie_rmse)
+
+#Predict (mu + bu)
+user_avgs <- edxTrainSet %>% 
+  group_by(userId) %>% 
+  summarize(b_u = mean(rating - mu))
+
+predicted_ratings <- mu + edxTestSet %>% 
+  left_join(user_avgs, by='userId') %>%
+  pull(b_u)
+
+user_rmse <- RMSE(predicted_ratings, edxTestSet$rating)
+
+user_rmse <- data.frame(Variable = "Baseline + User Effect (mu + b_u)", 
+                           RMSE = user_rmse,
+                           Difference = rmse_baseline - user_rmse)
+
+rmse_baseline_step  <- rbind(rmse_baseline_step , user_rmse)
+
+rm(user_rmse)
+
+#Predict (mu + b_ma)
+movieage_avgs <- edxTrainSet %>% 
+  group_by(movieAge) %>% 
+  summarize(b_ma = mean(rating - mu))
+
+predicted_ratings <- mu + edxTestSet %>% 
+  left_join(movieage_avgs, by='movieAge') %>%
+  pull(b_ma)
+
+movieage_rmse <- RMSE(predicted_ratings, edxTestSet$rating)
+
+movieage_rmse <- data.frame(Variable = "Baseline + Movie Age Effect (mu + b_a)", 
+                           RMSE = movieage_rmse ,
+                           Difference = rmse_baseline - movieage_rmse )
+
+rmse_baseline_step  <- rbind(rmse_baseline_step , movieage_rmse)
+rm(movieage_rmse)
+
+#Predict (mu + b_my)
+movieyear_avgs <- edxTrainSet %>% 
+  group_by(movieYear) %>%
+  summarize(b_my = mean(rating - mu))
+
+predicted_ratings <- mu + edxTestSet %>% 
+  left_join(movieyear_avgs, by='movieYear') %>%
+  pull(b_my)
+
+movieyear_rmse <- RMSE(predicted_ratings, edxTestSet$rating)
+
+movieyear_rmse <- data.frame(Variable = "Baseline + Movie Year Effect (mu + b_y)", 
+                               RMSE = movieyear_rmse ,
+                               Difference = rmse_baseline - movieyear_rmse )
+
+rmse_baseline_step  <- rbind(rmse_baseline_step , movieyear_rmse)
+rm(movieyear_rmse)
+
+#Predict (mu + b_g)
+genres_avgs <- edxTrainSet %>% 
+  group_by(genres) %>%
+  summarize(b_g = mean(rating - mu))
+
+predicted_ratings <- mu + edxTestSet %>% 
+  left_join(genres_avgs, by='genres') %>%
+  pull(b_g)
+
+genres_rmse <- RMSE(predicted_ratings, edxTestSet$rating)
+
+genres_rmse <- data.frame(Variable = "Baseline + Genres Effect (mu + b_g)", 
+                                RMSE = genres_rmse ,
+                                Difference = rmse_baseline - genres_rmse )
+
+rmse_baseline_step  <- rbind(rmse_baseline_step , genres_rmse)
+rm(genres_rmse)
+
+#Predict (mu + b_uf)
+userfreq_avgs <- edxTrainSet %>% 
+  group_by(userFreq) %>% 
+  summarize(b_uf = mean(rating - mu))
+
+predicted_ratings <- mu + edxTestSet %>% 
+  left_join(userfreq_avgs, by='userFreq') %>%
+  pull(b_uf)
+
+userfreq_rmse <- RMSE(predicted_ratings, edxTestSet$rating)
+
+userfreq_rmse <- data.frame(Variable = "Baseline + User Frequency Effect (mu + b_f)", 
+                           RMSE = userfreq_rmse,
+                           Difference = rmse_baseline - userfreq_rmse)
+
+rmse_baseline_step  <- rbind(rmse_baseline_step , userfreq_rmse)
+rm(userfreq_rmse)
+
+#Predict (mu + b_mf)
+moviefreq_avgs <- edxTrainSet %>% 
+  group_by(movieFreq) %>% 
+  summarize(b_mf = mean(rating - mu))
+
+predicted_ratings <- mu + edxTestSet %>% 
+  left_join(moviefreq_avgs, by='movieFreq') %>%
+  pull(b_mf)
+
+moviefreq_rmse <- RMSE(predicted_ratings, edxTestSet$rating)
+
+moviefreq_rmse <- data.frame(Variable = "Baseline + Movie Frequency Effect (mu + b_m)", 
+                               RMSE = moviefreq_rmse,
+                               Difference = rmse_baseline - moviefreq_rmse)
+
+rmse_baseline_step  <- rbind(rmse_baseline_step , moviefreq_rmse)
+rm(moviefreq_rmse)
+ 
+```
+
+```{r Table- Stepwise 1, echo = FALSE}
+knitr::kable(rmse_baseline_step)
+```
+
+A graph is shown in Figure 8 for visual inspection of the RMSE values of the different effects. The baseline (rating average) with the movie effect ($\mu + \beta_i$) produced minimal loss compared to other variables. The baseline with the movie effect ($\mu + \beta_i$) was then chosen as the new baseline for the next stepwise model.
+
+```{r Plot- Stepwise 1, echo = FALSE, fig.align='center', fig.height=2.5, fig.width=7}
+rmse_baseline_step <- rmse_baseline_step [order(-rmse_baseline_step $RMSE),]
+
+ggplot(rmse_baseline_step , aes(x = RMSE, y = forcats::fct_inorder(as.factor(Variable)))) +
+  geom_point(stat = "identity") +
+  labs(x = "RMSE", y = "", caption = "*based on final training dataset") +
+  theme(plot.title = element_text(size = rel(1.5)),
+        plot.caption = element_text(size = 8, face = "italic"), 
+        axis.title = element_text(size = 12))
+```
+
+```{=tex}
+\begin{center}
+Figure 8. Stepwise RMSE (Baseline)
+\end{center}
+```
+### 2.3.2.2. Movie Effect
+
+The rating average + movie effect ($\mu + \beta_i$) became the baseline for the 2nd stepwise reiteration. The stepwise method then considered the user effect ($\beta_u$), movie age effect ($\beta_a$), movie year affect ($\beta_y$), genre effect ($\beta_g$), user frequency effect ($\beta_f$), and movie frequency effect ($\beta_m$). The result of the stepwise method is shown in the table below.
+
+```{r Stepwise 2- Movie, include = FALSE}
+#Predict (mu + b_i)
+movie_avgs <- edxTrainSet %>% 
+  group_by(movieId) %>% 
+  summarize(b_i = mean(rating - mu))
+
+predicted_ratings <- mu + edxTestSet %>% 
+  left_join(movie_avgs, by='movieId') %>%
+  pull(b_i)
+
+rmse_movie_step_temp <- RMSE(predicted_ratings, edxTestSet$rating) 
+rmse_movie_step <- data.frame(Stepwise = "Baseline + Movie", 
+                              RMSE = rmse_movie_step_temp ,
+                              Difference = 0)
+
+#Predict (mu + b_i + b_mf)
+moviefreq_avgs <- edxTrainSet %>% 
+  left_join(movie_avgs, by = "movieId") %>%
+  group_by(movieFreq) %>% 
+  summarize(b_mf = mean(rating - mu - b_i))
+
+predicted_ratings <- edxTestSet %>%
+  left_join(movie_avgs, by = "movieId") %>%
+  left_join(moviefreq_avgs, by = "movieFreq") %>%
+  mutate(pred = mu + b_i + b_mf) %>%
+  pull(pred)
+
+rmse_movie_step_temp <- RMSE(predicted_ratings, edxTestSet$rating) 
+rmse_movie_step_temp <- data.frame(Stepwise = "+ Movie Frequency", 
+                             RMSE = rmse_movie_step_temp,
+                             Difference = rmse_movie_step[1,2] - rmse_movie_step_temp)
+
+rmse_movie_step <- rbind(rmse_movie_step, rmse_movie_step_temp)
+
+#Predict (mu + b_i + b_u)
+user_avgs <- edxTrainSet %>% 
+  left_join(movie_avgs, by = "movieId") %>%
+  group_by(userId) %>% 
+  summarize(b_u = mean(rating - mu - b_i))
+
+predicted_ratings <- edxTestSet %>%
+  left_join(movie_avgs, by = "movieId") %>%
+  left_join(user_avgs, by = "userId") %>%
+  mutate(pred = mu + b_i + b_u) %>%
+  pull(pred)
+
+rmse_movie_step_temp <- RMSE(predicted_ratings, edxTestSet$rating) 
+rmse_movie_step_temp <- data.frame(Stepwise = "+ User", 
+                                   RMSE = rmse_movie_step_temp,
+                                   Difference = rmse_movie_step[1,2] - rmse_movie_step_temp)
+
+rmse_movie_step <- rbind(rmse_movie_step, rmse_movie_step_temp)
+
+#Predict (mu + b_i + b_g)
+genres_avgs <- edxTrainSet %>% 
+  left_join(movie_avgs, by = "movieId") %>%
+  group_by(genres) %>% 
+  summarize(b_g = mean(rating - mu - b_i))
+
+predicted_ratings <- edxTestSet %>%
+  left_join(movie_avgs, by = "movieId") %>%
+  left_join(genres_avgs, by = "genres") %>%
+  mutate(pred = mu + b_i + b_g) %>%
+  pull(pred)
+
+rmse_movie_step_temp <- RMSE(predicted_ratings, edxTestSet$rating) 
+rmse_movie_step_temp <- data.frame(Stepwise = "+ Genres", 
+                                   RMSE = rmse_movie_step_temp,
+                                   Difference = rmse_movie_step[1,2] - rmse_movie_step_temp)
+
+rmse_movie_step <- rbind(rmse_movie_step, rmse_movie_step_temp)
+
+#Predict (mu + b_i + b_uf)
+
+userfreq_avgs <- edxTrainSet %>% 
+  left_join(movie_avgs, by = "movieId") %>%
+  group_by(userFreq) %>% 
+  summarize(b_uf = mean(rating - mu - b_i))
+
+predicted_ratings <- edxTestSet %>%
+  left_join(movie_avgs, by = "movieId") %>%
+  left_join(userfreq_avgs, by = "userFreq") %>%
+  mutate(pred = mu + b_i + b_uf) %>%
+  pull(pred)
+
+rmse_movie_step_temp <- RMSE(predicted_ratings, edxTestSet$rating) 
+rmse_movie_step_temp <- data.frame(Stepwise = "+ User Frequency", 
+                                   RMSE = rmse_movie_step_temp,
+                                   Difference = rmse_movie_step[1,2] - rmse_movie_step_temp)
+
+rmse_movie_step <- rbind(rmse_movie_step, rmse_movie_step_temp)
+
+#Predict (mu + b_i + b_my)
+movieyear_avgs <- edxTrainSet %>% 
+  left_join(movie_avgs, by = "movieId") %>%
+  group_by(movieYear) %>% 
+  summarize(b_my = mean(rating - mu - b_i))
+
+predicted_ratings <- edxTestSet %>%
+  left_join(movie_avgs, by = "movieId") %>%
+  left_join(movieyear_avgs, by = "movieYear") %>%
+  mutate(pred = mu + b_i + b_my) %>%
+  pull(pred)
+
+rmse_movie_step_temp <- RMSE(predicted_ratings, edxTestSet$rating) 
+rmse_movie_step_temp <- data.frame(Stepwise = "+ Movie Year", 
+                                   RMSE = rmse_movie_step_temp,
+                                   Difference = rmse_movie_step[1,2] - rmse_movie_step_temp)
+
+rmse_movie_step <- rbind(rmse_movie_step, rmse_movie_step_temp)
+
+#Predict (mu + b_i + b_ma)
+movieage_avgs <- edxTrainSet %>% 
+  left_join(movie_avgs, by = "movieId") %>%
+  group_by(movieAge) %>% 
+  summarize(b_ma = mean(rating - mu - b_i))
+
+predicted_ratings <- edxTestSet %>%
+  left_join(movie_avgs, by = "movieId") %>%
+  left_join(movieage_avgs, by = "movieAge") %>%
+  mutate(pred = mu + b_i + b_ma) %>%
+  pull(pred)
+
+rmse_movie_step_temp <- RMSE(predicted_ratings, edxTestSet$rating) 
+rmse_movie_step_temp <- data.frame(Stepwise = "+ Movie Age", 
+                                   RMSE = rmse_movie_step_temp,
+                                   Difference = rmse_movie_step[1,2] - rmse_movie_step_temp)
+
+rmse_movie_step <- rbind(rmse_movie_step, rmse_movie_step_temp)
+```
+
+```{r Table- Stepwise 2, echo = FALSE}
+knitr::kable(rmse_movie_step, digits = round(7))
+```
+
+As shown in Figure 9, the previous baseline with user effect ($\mu + \beta_i + \beta_u$) produced minimal loss compared to other variables. The baseline with the user effect ($\mu + \beta_i + \beta_u$) was then chosen as the new baseline for the next stepwise model. 
+
+```{r Plot- Stepwise 2, echo = FALSE, fig.align='center', fig.height=2.5, fig.width=7}
+rmse_movie_step <- rmse_movie_step [order(-rmse_movie_step $RMSE),]
+
+ggplot(rmse_movie_step , aes(x = RMSE, y = forcats::fct_inorder(as.factor(Stepwise)))) +
+  geom_point(stat = "identity") +
+  labs(x = "RMSE", y = "", caption = "*based on final training dataset") +
+  theme(plot.title = element_text(size = rel(1.5)),
+        plot.caption = element_text(size = 8, face = "italic"), 
+        axis.title = element_text(size = 12))
+```
+
+```{=tex}
+\begin{center}
+Figure 9. Stepwise RMSE (Movie Effect)
+\end{center}
+```
+
+### 2.3.2.3. User Effect
+
+The rating average + movie effect + user effect ($\mu + \beta_i + \beta_u$) became the baseline for the 3rd stepwise reiteration. The stepwise method then considered the movie age effect ($\beta_a$), movie year affect ($\beta_y$), genre effect ($\beta_g$), user frequency effect ($\beta_f$), and movie frequency effect ($\beta_m$). The result of the stepwise method is shown in the table below.
+
+```{r Stepwise 3- User, include = FALSE}
+#Predict (mu + b_i + b_u)
+user_avgs <- edxTrainSet %>% 
+  left_join(movie_avgs, by = "movieId") %>%
+  group_by(userId) %>% 
+  summarize(b_u = mean(rating - mu - b_i))
+
+predicted_ratings <- edxTestSet %>%
+  left_join(movie_avgs, by = "movieId") %>%
+  left_join(user_avgs, by = "userId") %>%
+  mutate(pred = mu + b_i + b_u) %>%
+  pull(pred)
+
+rmse_user_step_temp <- RMSE(predicted_ratings, edxTestSet$rating) 
+rmse_user_step <- data.frame(Stepwise = "Baseline + Movie + User", 
+                              RMSE = rmse_user_step_temp,
+                              Difference = 0)
+
+#Predict (mu + b_i + b_u + b_uf)
+userfreq_avgs <- edxTrainSet %>% 
+  left_join(movie_avgs, by = "movieId") %>%
+  left_join(user_avgs, by = "userId") %>%
+  group_by(userFreq) %>% 
+  summarize(b_uf = mean(rating - mu - b_i - b_u))
+
+predicted_ratings <- edxTestSet %>%
+  left_join(movie_avgs, by = "movieId") %>%
+  left_join(user_avgs, by = "userId") %>%
+  left_join(userfreq_avgs, by = "userFreq") %>%
+  mutate(pred = mu + b_i + b_u + b_uf) %>%
+  pull(pred)
+
+rmse_user_step_temp <- RMSE(predicted_ratings, edxTestSet$rating) 
+rmse_user_step_temp <- data.frame(Stepwise = "+ User Frequency", 
+                             RMSE = rmse_user_step_temp,
+                             Difference = rmse_user_step[1,2] - rmse_user_step_temp)
+
+rmse_user_step <- rbind(rmse_user_step, rmse_user_step_temp)
+
+#Predict (mu + b_i + b_u + b_ma)
+movieage_avgs <- edxTrainSet %>% 
+  left_join(movie_avgs, by = "movieId") %>%
+  left_join(user_avgs, by = "userId") %>%
+  group_by(movieAge) %>% 
+  summarize(b_ma = mean(rating - mu - b_i - b_u))
+
+predicted_ratings <- edxTestSet %>%
+  left_join(movie_avgs, by = "movieId") %>%
+  left_join(user_avgs, by = "userId") %>%
+  left_join(movieage_avgs, by = "movieAge") %>%
+  mutate(pred = mu + b_i + b_u + b_ma) %>%
+  pull(pred)
+
+rmse_user_step_temp <- RMSE(predicted_ratings, edxTestSet$rating) 
+rmse_user_step_temp <- data.frame(Stepwise = "+ Movie Age", 
+                                  RMSE = rmse_user_step_temp,
+                                  Difference = rmse_user_step[1,2] - rmse_user_step_temp)
+
+rmse_user_step <- rbind(rmse_user_step, rmse_user_step_temp)
+
+#Predict (mu + b_i + b_u + b_my)
+movieyear_avgs <- edxTrainSet %>% 
+  left_join(movie_avgs, by = "movieId") %>%
+  left_join(user_avgs, by = "userId") %>%
+  group_by(movieYear) %>% 
+  summarize(b_my = mean(rating - mu - b_i - b_u))
+
+predicted_ratings <- edxTestSet %>%
+  left_join(movie_avgs, by = "movieId") %>%
+  left_join(user_avgs, by = "userId") %>%
+  left_join(movieyear_avgs, by = "movieYear") %>%
+  mutate(pred = mu + b_i + b_u + b_my) %>%
+  pull(pred)
+
+rmse_user_step_temp <- RMSE(predicted_ratings, edxTestSet$rating) 
+rmse_user_step_temp <- data.frame(Stepwise = "+ Movie Year", 
+                                  RMSE = rmse_user_step_temp,
+                                  Difference = rmse_user_step[1,2] - rmse_user_step_temp)
+
+rmse_user_step <- rbind(rmse_user_step, rmse_user_step_temp)
+
+#Predict (mu + b_i + b_u + b_g)
+genres_avgs <- edxTrainSet %>% 
+  left_join(movie_avgs, by = "movieId") %>%
+  left_join(user_avgs, by = "userId") %>%
+  group_by(genres) %>% 
+  summarize(b_g = mean(rating - mu - b_i - b_u))
+
+predicted_ratings <- edxTestSet %>%
+  left_join(movie_avgs, by = "movieId") %>%
+  left_join(user_avgs, by = "userId") %>%
+  left_join(genres_avgs, by = "genres") %>%
+  mutate(pred = mu + b_i + b_u + b_g) %>%
+  pull(pred)
+
+rmse_user_step_temp <- RMSE(predicted_ratings, edxTestSet$rating) 
+rmse_user_step_temp <- data.frame(Stepwise = "+ Genres", 
+                                  RMSE = rmse_user_step_temp,
+                                  Difference = rmse_user_step[1,2] - rmse_user_step_temp)
+
+rmse_user_step <- rbind(rmse_user_step, rmse_user_step_temp)
+
+#Predict (mu + b_i + b_u + b_mf)
+moviefreq_avgs <- edxTrainSet %>% 
+  left_join(movie_avgs, by = "movieId") %>%
+  left_join(user_avgs, by = "userId") %>%
+  group_by(movieFreq) %>% 
+  summarize(b_mf = mean(rating - mu - b_i - b_u))
+
+predicted_ratings <- edxTestSet %>%
+  left_join(movie_avgs, by = "movieId") %>%
+  left_join(user_avgs, by = "userId") %>%
+  left_join(moviefreq_avgs, by = "movieFreq") %>%
+  mutate(pred = mu + b_i + b_u + b_mf) %>%
+  pull(pred)
+
+rmse_user_step_temp <- RMSE(predicted_ratings, edxTestSet$rating) 
+rmse_user_step_temp <- data.frame(Stepwise = "+ Movie Frequency", 
+                                  RMSE = rmse_user_step_temp,
+                                  Difference = rmse_user_step[1,2] - rmse_user_step_temp)
+
+rmse_user_step <- rbind(rmse_user_step, rmse_user_step_temp)
+```
+
+```{r Table- Stepwise 3, echo = FALSE}
+knitr::kable(rmse_user_step, digits = round(7))
+```
+
+As shown in Figure 10, the previous baseline with movie frequency effect ($\mu + \beta_i + \beta_u + \beta_m$) produced minimal loss compared to other variables. The baseline with the movie frequency effect ($\mu + \beta_i + \beta_u + \beta_m$) was then chosen as the new baseline for the next stepwise model. 
+
+```{r Plot- Stepwise 3, echo = FALSE, fig.align='center', fig.height=2.5, fig.width=7}
+rmse_user_step <- rmse_user_step [order(-rmse_user_step $RMSE),]
+
+ggplot(rmse_user_step , aes(x = RMSE, y = forcats::fct_inorder(as.factor(Stepwise)))) +
+  geom_point(stat = "identity") +
+  labs(x = "RMSE", y = "", caption = "*based on final training dataset") +
+  theme(plot.title = element_text(size = rel(1.5)),
+        plot.caption = element_text(size = 8, face = "italic"), 
+        axis.title = element_text(size = 12))
+```
+
+```{=tex}
+\begin{center}
+Figure 10. Stepwise RMSE (User Effect)
+\end{center}
+```
+
+### 2.3.2.4. Movie Frequency Effect
+
+The rating average + movie effect + user effect + movie frequency effect ($\mu + \beta_i + \beta_u + \beta_m$) became the baseline for the 4th stepwise reiteration. The stepwise method then considered the movie age effect ($\beta_a$), movie year affect ($\beta_y$), genre effect ($\beta_g$), and user frequency effect ($\beta_f$). The result of the stepwise method is shown in the table below.
+
+```{r Stepwise 4- Movie Frequency, include = FALSE}
+#Predict (mu + b_i + b_u + b_mf)
+moviefreq_avgs <- edxTrainSet %>% 
+  left_join(movie_avgs, by = "movieId") %>%
+  left_join(user_avgs, by = "userId") %>%
+  group_by(movieFreq) %>% 
+  summarize(b_mf = mean(rating - mu - b_i - b_u))
+
+predicted_ratings <- edxTestSet %>%
+  left_join(movie_avgs, by = "movieId") %>%
+  left_join(user_avgs, by = "userId") %>%
+  left_join(moviefreq_avgs, by = "movieFreq") %>%
+  mutate(pred = mu + b_i + b_u + b_mf) %>%
+  pull(pred)
+
+rmse_mf_step_temp <- RMSE(predicted_ratings, edxTestSet$rating) 
+rmse_mf_step <- data.frame(Stepwise = "Baseline + Movie + User + Movie Frequency", 
+                             RMSE = rmse_mf_step_temp,
+                             Difference = 0)
+
+#Predict (mu + b_i + b_u + b_mf + b_ma)
+movieage_avgs <- edxTrainSet %>% 
+  left_join(movie_avgs, by = "movieId") %>%
+  left_join(user_avgs, by = "userId") %>%
+  left_join(moviefreq_avgs, by = "movieFreq") %>%
+  group_by(movieAge) %>% 
+  summarize(b_ma = mean(rating - mu - b_i - b_u - b_mf))
+
+predicted_ratings <- edxTestSet %>%
+  left_join(movie_avgs, by = "movieId") %>%
+  left_join(user_avgs, by = "userId") %>%
+  left_join(moviefreq_avgs, by = "movieFreq") %>%
+  left_join(movieage_avgs, by = "movieAge") %>%
+  mutate(pred = mu + b_i + b_u + b_mf + b_ma) %>%
+  pull(pred)
+
+rmse_mf_step_temp <- RMSE(predicted_ratings, edxTestSet$rating) 
+rmse_mf_step_temp <- data.frame(Stepwise = "+ Movie Age", 
+                                  RMSE = rmse_mf_step_temp,
+                                  Difference = rmse_mf_step[1,2] - rmse_mf_step_temp)
+
+rmse_mf_step <- rbind(rmse_mf_step, rmse_mf_step_temp)
+
+#Predict (mu + b_i + b_u + b_mf + b_g)
+genres_avgs <- edxTrainSet %>% 
+  left_join(movie_avgs, by = "movieId") %>%
+  left_join(user_avgs, by = "userId") %>%
+  left_join(moviefreq_avgs, by = "movieFreq") %>%
+  group_by(genres) %>% 
+  summarize(b_g = mean(rating - mu - b_i - b_u - b_mf))
+
+predicted_ratings <- edxTestSet %>%
+  left_join(movie_avgs, by = "movieId") %>%
+  left_join(user_avgs, by = "userId") %>%
+  left_join(moviefreq_avgs, by = "movieFreq") %>%
+  left_join(genres_avgs, by = "genres") %>%
+  mutate(pred = mu + b_i + b_u + b_mf + b_g) %>%
+  pull(pred)
+
+rmse_mf_step_temp <- RMSE(predicted_ratings, edxTestSet$rating) 
+rmse_mf_step_temp <- data.frame(Stepwise = "+ Genres", 
+                                RMSE = rmse_mf_step_temp,
+                                Difference = rmse_mf_step[1,2] - rmse_mf_step_temp)
+
+rmse_mf_step <- rbind(rmse_mf_step, rmse_mf_step_temp)
+
+#Predict (mu + b_i + b_u + b_mf + b_my)
+movieyear_avgs <- edxTrainSet %>% 
+  left_join(movie_avgs, by = "movieId") %>%
+  left_join(user_avgs, by = "userId") %>%
+  left_join(moviefreq_avgs, by = "movieFreq") %>%
+  group_by(movieYear) %>% 
+  summarize(b_my = mean(rating - mu - b_i - b_u - b_mf))
+
+predicted_ratings <- edxTestSet %>%
+  left_join(movie_avgs, by = "movieId") %>%
+  left_join(user_avgs, by = "userId") %>%
+  left_join(moviefreq_avgs, by = "movieFreq") %>%
+  left_join(movieyear_avgs, by = "movieYear") %>%
+  mutate(pred = mu + b_i + b_u + b_mf + b_my) %>%
+  pull(pred)
+
+rmse_mf_step_temp <- RMSE(predicted_ratings, edxTestSet$rating) 
+rmse_mf_step_temp <- data.frame(Stepwise = "+ Movie Year", 
+                                RMSE = rmse_mf_step_temp,
+                                Difference = rmse_mf_step[1,2] - rmse_mf_step_temp)
+
+rmse_mf_step <- rbind(rmse_mf_step, rmse_mf_step_temp)
+
+#Predict (mu + b_i + b_u + b_mf + b_uf)
+userfreq_avgs <- edxTrainSet %>% 
+  left_join(movie_avgs, by = "movieId") %>%
+  left_join(user_avgs, by = "userId") %>%
+  left_join(moviefreq_avgs, by = "movieFreq") %>%
+  group_by(userFreq) %>% 
+  summarize(b_uf = mean(rating - mu - b_i - b_u - b_mf))
+
+predicted_ratings <- edxTestSet %>%
+  left_join(movie_avgs, by = "movieId") %>%
+  left_join(user_avgs, by = "userId") %>%
+  left_join(moviefreq_avgs, by = "movieFreq") %>%
+  left_join(userfreq_avgs, by = "userFreq") %>%
+  mutate(pred = mu + b_i + b_u + b_mf + b_uf) %>%
+  pull(pred)
+
+rmse_mf_step_temp <- RMSE(predicted_ratings, edxTestSet$rating) 
+rmse_mf_step_temp <- data.frame(Stepwise = "+ User Frequency", 
+                                RMSE = rmse_mf_step_temp,
+                                Difference = rmse_mf_step[1,2] - rmse_mf_step_temp)
+
+rmse_mf_step <- rbind(rmse_mf_step, rmse_mf_step_temp)
+```
+
+```{r Table- Stepwise 4, echo = FALSE}
+knitr::kable(rmse_mf_step, digits = round(7))
+```
+
+As shown in Figure 11, the previous baseline with movie age effect ($\mu + \beta_i + \beta_u + \beta_m + \beta_a$) produced minimal loss compared to other variables. The baseline with the movie age effect ($\mu + \beta_i + \beta_u + \beta_m + \beta_a$) was then chosen as the new baseline for the next stepwise model. 
+
+```{r Plot- Stepwise 4, echo = FALSE, fig.align='center', fig.height=2.5, fig.width=7}
+rmse_mf_step <- rmse_mf_step [order(-rmse_mf_step $RMSE),]
+
+ggplot(rmse_mf_step , aes(x = RMSE, y = forcats::fct_inorder(as.factor(Stepwise)))) +
+  geom_point(stat = "identity") +
+  labs(x = "RMSE", y = "", caption = "*based on final training dataset") +
+  theme(plot.title = element_text(size = rel(1.5)),
+        plot.caption = element_text(size = 8, face = "italic"), 
+        axis.title = element_text(size = 12))
+```
+
+```{=tex}
+\begin{center}
+Figure 11. Stepwise RMSE (Movie Frequency Effect)
+\end{center}
+```
+
+### 2.3.2.5. Movie Age Effect
+
+The rating average + movie effect + user effect + movie frequency effect + movie age effect ($\mu + \beta_i + \beta_u + \beta_m + \beta_a$) became the baseline for the 5th stepwise reiteration. The stepwise method then considered the movie year affect ($\beta_y$), genre effect ($\beta_g$), and user frequency effect ($\beta_f$). The result of the stepwise method is shown in the table below.
+
+```{r Stepwise 5- Movie Age, include = FALSE}
+#Predict (mu + b_i + b_u + b_mf + b_ma)
+movieage_avgs <- edxTrainSet %>% 
+  left_join(movie_avgs, by = "movieId") %>%
+  left_join(user_avgs, by = "userId") %>%
+  left_join(moviefreq_avgs, by = "movieFreq") %>%
+  group_by(movieAge) %>% 
+  summarize(b_ma = mean(rating - mu - b_i - b_u - b_mf))
+
+predicted_ratings <- edxTestSet %>%
+  left_join(movie_avgs, by = "movieId") %>%
+  left_join(user_avgs, by = "userId") %>%
+  left_join(moviefreq_avgs, by = "movieFreq") %>%
+  left_join(movieage_avgs, by = "movieAge") %>%
+  mutate(pred = mu + b_i + b_u + b_mf + b_ma) %>%
+  pull(pred)
+
+rmse_ma_step_temp <- RMSE(predicted_ratings, edxTestSet$rating) 
+rmse_ma_step <- data.frame(Stepwise = "Baseline + ... + Movie Age", 
+                           RMSE = rmse_ma_step_temp,
+                           Difference = 0)
+
+#Predict (mu + b_i + b_u + b_mf + b_ma + b_uf)
+userfreq_avgs <- edxTrainSet %>% 
+  left_join(movie_avgs, by = "movieId") %>%
+  left_join(user_avgs, by = "userId") %>%
+  left_join(moviefreq_avgs, by = "movieFreq") %>%
+  left_join(movieage_avgs, by = "movieAge") %>%
+  group_by(userFreq) %>% 
+  summarize(b_uf = mean(rating - mu - b_i - b_u - b_mf - b_ma))
+
+predicted_ratings <- edxTestSet %>%
+  left_join(movie_avgs, by = "movieId") %>%
+  left_join(user_avgs, by = "userId") %>%
+  left_join(moviefreq_avgs, by = "movieFreq") %>%
+  left_join(movieage_avgs, by = "movieAge") %>%
+  left_join(userfreq_avgs, by = "userFreq") %>%
+  mutate(pred = mu + b_i + b_u + b_mf + b_ma + b_uf) %>%
+  pull(pred)
+
+rmse_ma_step_temp <- RMSE(predicted_ratings, edxTestSet$rating) 
+rmse_ma_step_temp <- data.frame(Stepwise = "+ User Frequency", 
+                                RMSE = rmse_ma_step_temp,
+                                Difference = rmse_ma_step[1,2] - rmse_ma_step_temp)
+
+rmse_ma_step <- rbind(rmse_ma_step, rmse_ma_step_temp)
+
+#Predict (mu + b_i + b_u + b_mf + b_ma + b_g)
+genres_avgs <- edxTrainSet %>% 
+  left_join(movie_avgs, by = "movieId") %>%
+  left_join(user_avgs, by = "userId") %>%
+  left_join(moviefreq_avgs, by = "movieFreq") %>%
+  left_join(movieage_avgs, by = "movieAge") %>%
+  group_by(genres) %>% 
+  summarize(b_g = mean(rating - mu - b_i - b_u - b_mf - b_ma))
+
+predicted_ratings <- edxTestSet %>%
+  left_join(movie_avgs, by = "movieId") %>%
+  left_join(user_avgs, by = "userId") %>%
+  left_join(moviefreq_avgs, by = "movieFreq") %>%
+  left_join(movieage_avgs, by = "movieAge") %>%
+  left_join(genres_avgs, by = "genres") %>%
+  mutate(pred = mu + b_i + b_u + b_mf + b_ma + b_g) %>%
+  pull(pred)
+
+rmse_ma_step_temp <- RMSE(predicted_ratings, edxTestSet$rating) 
+rmse_ma_step_temp <- data.frame(Stepwise = "+ Genres", 
+                                RMSE = rmse_ma_step_temp,
+                                Difference = rmse_ma_step[1,2] - rmse_ma_step_temp)
+
+rmse_ma_step <- rbind(rmse_ma_step, rmse_ma_step_temp)
+
+#Predict (mu + b_i + b_u + b_mf + b_ma + b_my)
+movieyear_avgs <- edxTrainSet %>% 
+  left_join(movie_avgs, by = "movieId") %>%
+  left_join(user_avgs, by = "userId") %>%
+  left_join(moviefreq_avgs, by = "movieFreq") %>%
+  left_join(movieage_avgs, by = "movieAge") %>%
+  group_by(movieYear) %>% 
+  summarize(b_my = mean(rating - mu - b_i - b_u - b_mf - b_ma))
+
+predicted_ratings <- edxTestSet %>%
+  left_join(movie_avgs, by = "movieId") %>%
+  left_join(user_avgs, by = "userId") %>%
+  left_join(moviefreq_avgs, by = "movieFreq") %>%
+  left_join(movieage_avgs, by = "movieAge") %>%
+  left_join(movieyear_avgs, by = "movieYear") %>%
+  mutate(pred = mu + b_i + b_u + b_mf + b_ma + b_my) %>%
+  pull(pred)
+
+rmse_ma_step_temp <- RMSE(predicted_ratings, edxTestSet$rating) 
+rmse_ma_step_temp <- data.frame(Stepwise = "+ Movie Year", 
+                                RMSE = rmse_ma_step_temp,
+                                Difference = rmse_ma_step[1,2] - rmse_ma_step_temp)
+
+rmse_ma_step <- rbind(rmse_ma_step, rmse_ma_step_temp)
+```
+
+```{r Table- Stepwise 5, echo = FALSE}
+knitr::kable(rmse_ma_step, digits = round(7))
+```
+
+As shown in Figure 12, the previous baseline with movie year effect ($\mu + \beta_i + \beta_u + \beta_m + \beta_a + \beta_y$) produced minimal loss compared to other variables. The baseline with the movie year effect ($\mu + \beta_i + \beta_u + \beta_m + \beta_a +\beta_y$) was then chosen as the new baseline for the next stepwise model. 
+
+```{r Plot- Stepwise 5, echo = FALSE, fig.align='center', fig.height=2.5, fig.width=7}
+rmse_ma_step <- rmse_ma_step [order(-rmse_ma_step $RMSE),]
+
+ggplot(rmse_ma_step , aes(x = RMSE, y = forcats::fct_inorder(as.factor(Stepwise)))) +
+  geom_point(stat = "identity") +
+  labs(x = "RMSE", y = "", caption = "*based on final training dataset") +
+  theme(plot.title = element_text(size = rel(1.5)),
+        plot.caption = element_text(size = 8, face = "italic"), 
+        axis.title = element_text(size = 12))
+```
+
+```{=tex}
+\begin{center}
+Figure 12. Stepwise RMSE (Movie Age Effect)
+\end{center}
+```
+
+### 2.3.2.6. Movie Year Effect
+
+The rating average + movie effect + user effect + movie frequency effect + movie age effect + movie year effect ($\mu + \beta_i + \beta_u + \beta_m + \beta_a + \beta_y$) became the baseline for the 6th stepwise reiteration. The stepwise method then considered the genre effect ($\beta_g$), and user frequency effect ($\beta_f$). The result of the stepwise method is shown in the table below.
+
+```{r Stepwise 6- Movie Year, include = FALSE}
+#Predict (mu + b_i + b_u + b_mf + b_ma + b_my)
+movieyear_avgs <- edxTrainSet %>% 
+  left_join(movie_avgs, by = "movieId") %>%
+  left_join(user_avgs, by = "userId") %>%
+  left_join(moviefreq_avgs, by = "movieFreq") %>%
+  left_join(movieage_avgs, by = "movieAge") %>%
+  group_by(movieYear) %>% 
+  summarize(b_my = mean(rating - mu - b_i - b_u - b_mf - b_ma))
+
+predicted_ratings <- edxTestSet %>%
+  left_join(movie_avgs, by = "movieId") %>%
+  left_join(user_avgs, by = "userId") %>%
+  left_join(moviefreq_avgs, by = "movieFreq") %>%
+  left_join(movieage_avgs, by = "movieAge") %>%
+  left_join(movieyear_avgs, by = "movieYear") %>%
+  mutate(pred = mu + b_i + b_u + b_mf + b_ma + b_my) %>%
+  pull(pred)
+
+rmse_my_step_temp <- RMSE(predicted_ratings, edxTestSet$rating) 
+rmse_my_step <- data.frame(Stepwise = "Baseline + ... + Movie Year", 
+                           RMSE = rmse_my_step_temp,
+                           Difference = 0)
+
+################################################################################
+#Predict (mu + b_i + b_u + b_mf + b_ma + b_my + b_uf)
+userfreq_avgs <- edxTrainSet %>% 
+  left_join(movie_avgs, by = "movieId") %>%
+  left_join(user_avgs, by = "userId") %>%
+  left_join(moviefreq_avgs, by = "movieFreq") %>%
+  left_join(movieage_avgs, by = "movieAge") %>%
+  left_join(movieyear_avgs, by = "movieYear") %>%
+  group_by(userFreq) %>% 
+  summarize(b_uf = mean(rating - mu - b_i - b_u - b_mf - b_ma - b_my))
+
+predicted_ratings <- edxTestSet %>%
+  left_join(movie_avgs, by = "movieId") %>%
+  left_join(user_avgs, by = "userId") %>%
+  left_join(moviefreq_avgs, by = "movieFreq") %>%
+  left_join(movieage_avgs, by = "movieAge") %>%
+  left_join(movieyear_avgs, by = "movieYear") %>%
+  left_join(userfreq_avgs, by = "userFreq") %>%
+  mutate(pred = mu + b_i + b_u + b_mf + b_ma + b_my + b_uf) %>%
+  pull(pred)
+
+rmse_my_step_temp <- RMSE(predicted_ratings, edxTestSet$rating) 
+rmse_my_step_temp <- data.frame(Stepwise = "+ User Frequency", 
+                                RMSE = rmse_my_step_temp,
+                                Difference = rmse_my_step[1,2] - rmse_my_step_temp)
+
+rmse_my_step <- rbind(rmse_my_step, rmse_my_step_temp)
+
+################################################################################
+#Predict (mu + b_i + b_u + b_mf + b_ma + b_my + b_g)
+genres_avgs <- edxTrainSet %>% 
+  left_join(movie_avgs, by = "movieId") %>%
+  left_join(user_avgs, by = "userId") %>%
+  left_join(moviefreq_avgs, by = "movieFreq") %>%
+  left_join(movieage_avgs, by = "movieAge") %>%
+  left_join(movieyear_avgs, by = "movieYear") %>%
+  group_by(genres) %>% 
+  summarize(b_g = mean(rating - mu - b_i - b_u - b_mf - b_ma - b_my))
+
+predicted_ratings <- edxTestSet %>%
+  left_join(movie_avgs, by = "movieId") %>%
+  left_join(user_avgs, by = "userId") %>%
+  left_join(moviefreq_avgs, by = "movieFreq") %>%
+  left_join(movieage_avgs, by = "movieAge") %>%
+  left_join(movieyear_avgs, by = "movieYear") %>%
+  left_join(genres_avgs, by = "genres") %>%
+  mutate(pred = mu + b_i + b_u + b_mf + b_ma + b_my + b_g) %>%
+  pull(pred)
+
+rmse_my_step_temp <- RMSE(predicted_ratings, edxTestSet$rating) 
+rmse_my_step_temp <- data.frame(Stepwise = "+ Genres", 
+                                RMSE = rmse_my_step_temp,
+                                Difference = rmse_my_step[1,2] - rmse_my_step_temp)
+
+rmse_my_step <- rbind(rmse_my_step, rmse_my_step_temp)
+```
+
+```{r Table- Stepwise 6, echo = FALSE}
+knitr::kable(rmse_my_step, digits = round(7))
+```
+
+As shown in Figure 13, the previous baseline with user frequency effect ($\mu + \beta_i + \beta_u + \beta_m + \beta_a + \beta_y + \beta_f$) produced minimal loss compared to genres. The baseline with the movie year effect ($\mu + \beta_i + \beta_u + \beta_m + \beta_a +\beta_y + \beta_f$) was then chosen as the new baseline for the next stepwise model. 
+
+```{r Plot- Stepwise 6, echo = FALSE, fig.align='center', fig.height=2.5, fig.width=7}
+rmse_my_step <- rmse_my_step [order(-rmse_my_step $RMSE),]
+
+ggplot(rmse_my_step , aes(x = RMSE, y = forcats::fct_inorder(as.factor(Stepwise)))) +
+  geom_point(stat = "identity") +
+  labs(x = "RMSE", y = "", caption = "*based on final training dataset") +
+  theme(plot.title = element_text(size = rel(1.5)),
+        plot.caption = element_text(size = 8, face = "italic"), 
+        axis.title = element_text(size = 12))
+```
+
+```{=tex}
+\begin{center}
+Figure 13. Stepwise RMSE (Movie Year Effect)
+\end{center}
+```
+
+### 2.3.2.7. User Frequency Effect and Genre Effect
+
+The rating average + movie effect + user effect + movie frequency effect + movie age effect + movie year effect + user frequency effect ($\mu + \beta_i + \beta_u + \beta_m + \beta_a + \beta_y + \beta_u$) became the baseline for the 7th stepwise reiteration. The stepwise method then considered the genre effect ($\beta_g$). The result of the stepwise method is shown in the table below. 
+
+```{r Stepwise 7- User Frequency, include = FALSE}
+#Predict (mu + b_i + b_u + b_mf + b_ma + b_my + b_uf)
+userfreq_avgs <- edxTrainSet %>% 
+  left_join(movie_avgs, by = "movieId") %>%
+  left_join(user_avgs, by = "userId") %>%
+  left_join(moviefreq_avgs, by = "movieFreq") %>%
+  left_join(movieage_avgs, by = "movieAge") %>%
+  left_join(movieyear_avgs, by = "movieYear") %>%
+  group_by(userFreq) %>% 
+  summarize(b_uf = mean(rating - mu - b_i - b_u - b_mf - b_ma - b_my))
+
+predicted_ratings <- edxTestSet %>%
+  left_join(movie_avgs, by = "movieId") %>%
+  left_join(user_avgs, by = "userId") %>%
+  left_join(moviefreq_avgs, by = "movieFreq") %>%
+  left_join(movieage_avgs, by = "movieAge") %>%
+  left_join(movieyear_avgs, by = "movieYear") %>%
+  left_join(userfreq_avgs, by = "userFreq") %>%
+  mutate(pred = mu + b_i + b_u + b_mf + b_ma + b_my + b_uf) %>%
+  pull(pred)
+
+rmse_uf_step_temp <- RMSE(predicted_ratings, edxTestSet$rating) 
+rmse_uf_step <- data.frame(Stepwise = "Baseline + Movie + User + Movie Frequency + Movie Age + Movie Year + User Frequency", 
+                           RMSE = rmse_uf_step_temp,
+                           Difference = 0)
+
+#Predict (mu + b_i + b_u + b_mf + b_ma + b_my + b_uf + b_g)
+genres_avgs <- edxTrainSet %>% 
+  left_join(movie_avgs, by = "movieId") %>%
+  left_join(user_avgs, by = "userId") %>%
+  left_join(moviefreq_avgs, by = "movieFreq") %>%
+  left_join(movieage_avgs, by = "movieAge") %>%
+  left_join(movieyear_avgs, by = "movieYear") %>%
+  left_join(userfreq_avgs, by = "userFreq") %>%
+  group_by(genres) %>% 
+  summarize(b_g = mean(rating - mu - b_i - b_u - b_mf - b_ma - b_my - b_uf))
+
+predicted_ratings <- edxTestSet %>%
+  left_join(movie_avgs, by = "movieId") %>%
+  left_join(user_avgs, by = "userId") %>%
+  left_join(moviefreq_avgs, by = "movieFreq") %>%
+  left_join(movieage_avgs, by = "movieAge") %>%
+  left_join(movieyear_avgs, by = "movieYear") %>%
+  left_join(userfreq_avgs, by = "userFreq") %>%
+  left_join(genres_avgs, by = "genres") %>%
+  mutate(pred = mu + b_i + b_u + b_mf + b_ma + b_my + b_uf + b_g) %>%
+  pull(pred)
+
+rmse_fullmodel <- RMSE(predicted_ratings, edxTestSet$rating)
+rmse_uf_step_temp <- RMSE(predicted_ratings, edxTestSet$rating) 
+rmse_uf_step_temp <- data.frame(Stepwise = "+ Genres", 
+                                RMSE = rmse_uf_step_temp,
+                                Difference = rmse_uf_step[1,2] - rmse_uf_step_temp)
+
+rmse_uf_step <- rbind(rmse_uf_step, rmse_uf_step_temp)
+fullmodel_predicted_ratings <- predicted_ratings
+```
+
+```{r Table- Stepwise 7, echo = FALSE}
+knitr::kable(rmse_uf_step, digits = round(7))
+```
+
+The result shows that the genre effect ($\beta_g$) provided improvement in the RMSE, thus it is retain in the final model:
+
+$$
+Y = \mu + \beta_i + \beta_u + \beta_m + \beta_a + \beta_y + \beta_u + \beta_g + \epsilon
+$$
+
+### 2.3.3. Regularization using penalized least squares
+
+In this section, we explore if regularization can still improve our prediction model. By adding a penalty term to our estimates, thus the penalized least squares, the model can constrain the total variability of the effect sizes [9]. Penalizing the least squares estimate helps because some observations, e.g., movie $i = 1$, are rated many times compared to movie $i = 2$, which only one user rates. The situation creates problem estimation since having only one or few raters creates a problem with precision (i.e., lacking sample observation). Instead of ignoring movies with one or few raters, as this creates over-training, it is better to set these movies as having an average rating. This idea is to control for the total variability of the estimates.
+
+To find the best penalty term $\lambda$, we run the final model with different penalty terms and find the best one that minimizes the RMSE most. The $\lambda$ is set to 0 up to 3, with in increment of 0.1. The result in Figure 14 shows that regularization is set to $0$. The result means that regularization does not improve the final model. The final model without regularization was retained for the final testing.
+
+```{r Regularization, include = FALSE}
+#Set cross validation for the tuning parameter (lambda)
+lambdas <- seq(0, 3, .1)
+
+#Regularize the final model: y = mu + b_i + b_u + b_mf + b_ma + b_my + b_uf + b_g
+rmses <- sapply(lambdas, function(l){
+  b_i <- edxTrainSet %>%
+    group_by(movieId) %>%
+    summarise(b_i = sum(rating - mu)/n() + l)
+  b_u <- edxTrainSet %>%
+    left_join(b_i, by = "movieId") %>%
+    group_by(userId) %>%
+    summarise(b_u = sum(rating - b_i - mu)/n() + l)
+  b_mf <- edxTrainSet %>%
+    left_join(b_i, by = "movieId") %>%
+    left_join(b_u, by = "userId") %>%
+    group_by(movieFreq) %>%
+    summarise(b_mf = sum(rating - b_i - b_u - mu)/n() + l)
+  b_ma <- edxTrainSet %>%
+    left_join(b_i, by = "movieId") %>%
+    left_join(b_u, by = "userId") %>%
+    left_join(b_mf, by = "movieFreq") %>%
+    group_by(movieAge) %>%
+    summarise(b_ma = sum(rating - b_i - b_u - b_mf - mu)/n() + l)
+  b_my <- edxTrainSet %>%
+    left_join(b_i, by = "movieId") %>%
+    left_join(b_u, by = "userId") %>%
+    left_join(b_mf, by = "movieFreq") %>%
+    left_join(b_ma, by = "movieAge") %>%
+    group_by(movieYear) %>%
+    summarise(b_my = sum(rating - b_i - b_u - b_mf - b_ma - mu)/n() + l)
+  b_uf <- edxTrainSet %>%
+    left_join(b_i, by = "movieId") %>%
+    left_join(b_u, by = "userId") %>%
+    left_join(b_mf, by = "movieFreq") %>%
+    left_join(b_ma, by = "movieAge") %>%
+    left_join(b_my, by = "movieYear") %>%
+    group_by(userFreq) %>%
+    summarise(b_uf = sum(rating - b_i - b_u - b_mf - b_ma - b_my - mu)/n() + l)
+  b_g <- edxTrainSet %>%
+    left_join(b_i, by = "movieId") %>%
+    left_join(b_u, by = "userId") %>%
+    left_join(b_mf, by = "movieFreq") %>%
+    left_join(b_ma, by = "movieAge") %>%
+    left_join(b_my, by = "movieYear") %>%
+    left_join(b_uf, by = "userFreq") %>%
+    group_by(genres) %>%
+    summarise(b_g = sum(rating - b_i - b_u - b_mf - b_ma - b_my - b_uf - mu)/n() + l)
+  predicted_ratings <- edxTestSet %>%
+    left_join(b_i, by = "movieId") %>%
+    left_join(b_u, by = "userId") %>%
+    left_join(b_mf, by = "movieFreq") %>%
+    left_join(b_ma, by = "movieAge") %>%
+    left_join(b_my, by = "movieYear") %>%
+    left_join(b_uf, by = "userFreq") %>%
+    left_join(b_g, by = "genres") %>%
+    mutate(pred = mu + b_i + b_u + b_mf + b_ma + b_my + b_uf + b_g) %>%
+    pull(pred)
+    return(RMSE(predicted_ratings, edxTestSet$rating))
+})
+```
+
+```{r Plot- Lambdas & RMSES,echo=FALSE, fig.align='center', fig.height=2.5, fig.width=7}
+penalty_terms <- data.frame(lambdas, rmses)
+
+ggplot(penalty_terms, aes(x = lambdas, y = rmses)) +
+  geom_point() +
+  labs(x = "Lambda", y = "RMSE", caption = "*based on final training dataset") +
+  theme(plot.title = element_text(size = rel(1.5)),
+        plot.caption = element_text(size = 8, face = "italic"), 
+        axis.title = element_text(size = 12))
+#lambda is set to zero, therefore no penalty terms is set to the model
+```
+
+```{=tex}
+\begin{center}
+Figure 14. Penalty Terms for Regularization
+\end{center}
+```
+
+```{r Computation- Minimum Lambda}
+min_lambda <- min(lambda)
+```
+
+```{r, echo = FALSE}
+message("The lowest penalty (lambda) is = ", sprintf(min_lambda, fmt = '%#.0f'))
+```
+
+```{r Computation- Minimum regularized RMSE}
+rmse_regularized <- min(rmses)
+```
+
+```{r, echo = FALSE}
+message("The RMSE for the lowest lambda is = ", rmse_regularized)
+```
+
+# 3. Results
+
+The final evaluation for the model using the final training dataset versus validation has achieved an RMSE of 0.8642, which is lower than the 0.8649, the required RSME. The movie recommendation system algorithm for this project has achieved its objective.
+
+```{r final hold-out test, include = FALSE}
+b_i <- edx %>%
+  group_by(movieId) %>%
+  summarise(b_i = sum(rating - mu)/n())
+b_u <- edx %>%
+  left_join(b_i, by = "movieId") %>%
+  group_by(userId) %>%
+  summarise(b_u = sum(rating - b_i - mu)/n())
+b_mf <- edx %>%
+  left_join(b_i, by = "movieId") %>%
+  left_join(b_u, by = "userId") %>%
+  group_by(movieFreq) %>%
+  summarise(b_mf = sum(rating - b_i - b_u - mu)/n())
+b_ma <- edx %>%
+  left_join(b_i, by = "movieId") %>%
+  left_join(b_u, by = "userId") %>%
+  left_join(b_mf, by = "movieFreq") %>%
+  group_by(movieAge) %>%
+  summarise(b_ma = sum(rating - b_i - b_u - b_mf - mu)/n())
+b_my <- edx %>%
+  left_join(b_i, by = "movieId") %>%
+  left_join(b_u, by = "userId") %>%
+  left_join(b_mf, by = "movieFreq") %>%
+  left_join(b_ma, by = "movieAge") %>%
+  group_by(movieYear) %>%
+  summarise(b_my = sum(rating - b_i - b_u - b_mf - b_ma - mu)/n())
+b_uf <- edx %>%
+  left_join(b_i, by = "movieId") %>%
+  left_join(b_u, by = "userId") %>%
+  left_join(b_mf, by = "movieFreq") %>%
+  left_join(b_ma, by = "movieAge") %>%
+  left_join(b_my, by = "movieYear") %>%
+  group_by(userFreq) %>%
+  summarise(b_uf = sum(rating - b_i - b_u - b_mf - b_ma - b_my - mu)/n())
+b_g <- edx %>%
+  left_join(b_i, by = "movieId") %>%
+  left_join(b_u, by = "userId") %>%
+  left_join(b_mf, by = "movieFreq") %>%
+  left_join(b_ma, by = "movieAge") %>%
+  left_join(b_my, by = "movieYear") %>%
+  left_join(b_uf, by = "userFreq") %>%
+  group_by(genres) %>%
+  summarise(b_g = sum(rating - b_i - b_u - b_mf - b_ma - b_my - b_uf - mu)/n())
+predicted_ratings <- validation %>%
+  left_join(b_i, by = "movieId") %>%
+  left_join(b_u, by = "userId") %>%
+  left_join(b_mf, by = "movieFreq") %>%
+  left_join(b_ma, by = "movieAge") %>%
+  left_join(b_my, by = "movieYear") %>%
+  left_join(b_uf, by = "userFreq") %>%
+  left_join(b_g, by = "genres") %>%
+  mutate(pred = mu + b_i + b_u + b_mf + b_ma + b_my + b_uf + b_g) %>%
+  pull(pred)
+
+rmse_final <- RMSE(predicted_ratings, validation$rating) 
+```
+
+```{r, echo = FALSE}
+message("The RMSE for the final model is = ", sprintf(rmse_final, fmt = '%#.7f'))
+```
+
+```{r echo= FALSE}
+rmse_objective <- 0.86490
+rmse_final_table <- data.frame(Model = c("Objective", "Final Model"), 
+                 RMSE = c(rmse_objective, rmse_final),
+                 Difference = c(0, rmse_objective - rmse_final))
+knitr::kable(rmse_final_table, digits = round(7))
+```
+
+# 4. Conclusion
+
+This project developed a recommendation system using the MovieLens 10M dataset with an RMSE of 0.8640, which has passed the required RMSE of 0.8649. The stepwise method found the best model using the least square for the estimate and RMSE for the evaluation metric. With this, we can find the best possible combination of variables for our prediction model. Specifically, our prediction model comprises several parts. First, a baseline rating pertains to the mean of the overall movie ratings. Second is the movie-specific effect, as some movies are rated higher while some are rated lower than the average. The third is the user-specific effect, as some users tend to rate movies higher or lower than the average. Fourth is the movie’s popularity, as some movies may attract more raters than others and thus may have an effect on the movie’s rating. Fifth is the movie age effect, as some users may judge movies based on the age of the movie. Sixth is the year of release effect, as some users may judge based on the year or the generation of the movie it was released. Seventh is the film critic effect, in which some users who rate more may rate differently than those who rate less. Last is the genre effect, as a genre provides different satisfaction to the users depending on their preferences.
+
+Although this project has developed a recommendation system that passed the objectives, there could still be room for improvement in minimizing the error using other techniques such as matrix factorization, neighborhood models, regression, temporal effects, or ensemble methods. Though, most of these techniques require considerable computing power to compute 10 million data. This constraint is why a simpler algorithm is better than a complex one in terms of computing efficiency. 
+
+# References
+
+[1] <https://iopscience.iop.org/article/10.1088/1757-899X/1098/3/032039/pdf>
+
+[2] <https://link.springer.com/chapter/10.1007/978-1-4899-7637-6_1>
+
+[3] <https://www.thrillist.com/entertainment/nation/the-netflix-prize>
+
+[4] <https://grouplens.org/datasets/movielens/>
+
+[5] <https://gmd.copernicus.org/articles/15/5481/2022/>
+
+[6] <https://rafalab.github.io/dsbook/introduction-to-machine-learning.html>
+
+[7] <https://stat.ethz.ch/~geer/bsa199_o.pdf>
+
+[8] <https://rtmath.net/assets/docs/finmath/html/31a58294-d03b-4f6d-ab26-009e>
+
+[9] <https://rafalab.github.io/dsbook/large-datasets.html#penalized-least-squares>
